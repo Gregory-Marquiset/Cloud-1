@@ -1,0 +1,2 @@
+app_dir: /opt/cloud-1
+server_name: "{{ ansible_host }}"

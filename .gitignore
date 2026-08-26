@@ -1,13 +1,16 @@
-# Etat Terraform : contient les secrets en clair
+# Terraform
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
 crash.log
 
-# Variables locales (jetons, mots de passe)
+# Variables locales
 *.auto.tfvars
 terraform.tfvars
 
-# Mot de passe Ansible Vault
+# Ansible Vault
 .vault-pass
+
+# nginx
+docker/.env
+docker/certs/

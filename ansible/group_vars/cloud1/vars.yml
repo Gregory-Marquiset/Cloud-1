@@ -1,0 +1,4 @@
+db_name: wordpress
+db_user: wpuser
+db_root_password: "{{ vault_db_root_password }}"
+db_password: "{{ vault_db_password }}"

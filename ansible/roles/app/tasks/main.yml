@@ -1,0 +1,34 @@
+- name: Créer le répertoire de l'application
+  ansible.builtin.file:
+    path: "{{ app_dir }}/certs"
+    state: directory
+    mode: "0755"
+- name: Copier le fichier de certificat dans le répertoire de l'application
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../docker/docker-compose.yml"
+    dest: "{{ app_dir }}"
+    mode: "0644"
+- name: Copier le fichier de configuration Nginx dans le répertoire de l'application
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../docker/nginx.conf"
+    dest: "{{ app_dir }}/nginx.conf"
+    mode: "0644"
+  notify:
+    - Redemarrer nginx
+- name: Créer le fichier .env pour l'application
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    mode: "0600"
+- name: Generer le certificat TLS auto-signe
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -nodes -days 365 -newkey rsa:2048
+      -keyout {{ app_dir }}/certs/cloud1.key
+      -out {{ app_dir }}/certs/cloud1.crt
+      -subj "/CN={{ server_name }}"
+    creates: "{{ app_dir }}/certs/cloud1.crt"
+- name: Démarrer les conteneurs Docker avec Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    state: present

@@ -1,0 +1,5 @@
+- name: Redemarrer nginx
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    services: [nginx]
+    state: restarted
