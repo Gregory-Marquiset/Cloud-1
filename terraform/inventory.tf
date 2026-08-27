@@ -1,4 +1,5 @@
 resource "local_file" "ansible_inventory" {
+  depends_on      = [proxmox_virtual_environment_vm.cloud1]
   filename        = "${path.module}/../ansible/inventory/hosts.yml"
   file_permission = "0644"
 

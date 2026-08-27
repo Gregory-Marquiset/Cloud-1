@@ -1,10 +1,21 @@
 variable "instances" {
-  description = "VMs cibles :  nom => id Proxmox"
-  type        = map(number)
+  description = "VMs cibles : nom => identifiant Proxmox et adresse fixe"
+  type = map(object({
+    vm_id = number
+    ip    = string
+  }))
   default = {
-    "cloud-1-srv-1" = 130
-    "cloud-1-srv-2" = 131
+    "cloud-1-srv-1" = { vm_id = 130, ip = "192.168.1.210/24" }
+    "cloud-1-srv-2" = { vm_id = 131, ip = "192.168.1.211/24" }
   }
+}
+variable "gateway" {
+  type    = string
+  default = "192.168.1.254"
+}
+variable "dns_servers" {
+  type    = list(string)
+  default = ["192.168.1.254", "1.1.1.1"]
 }
 variable "node_name" {
   description = "Nom du node Proxmox"

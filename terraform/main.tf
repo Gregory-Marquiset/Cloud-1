@@ -9,7 +9,7 @@ resource "proxmox_download_file" "ubuntu_2204" {
 resource "proxmox_virtual_environment_vm" "cloud1" {
   for_each  = var.instances
   name      = each.key
-  vm_id     = each.value
+  vm_id     = each.value.vm_id
   node_name = var.node_name
   tags      = ["cloud-1", "terraform"]
   agent {
@@ -31,9 +31,13 @@ resource "proxmox_virtual_environment_vm" "cloud1" {
   initialization {
     datastore_id      = var.datastore_id
     user_data_file_id = proxmox_virtual_environment_file.cloud_init[each.key].id
+    dns {
+      servers = var.dns_servers
+    }
     ip_config {
       ipv4 {
-        address = "dhcp"
+        address = each.value.ip
+        gateway = var.gateway
       }
     }
   }
@@ -46,7 +50,6 @@ resource "proxmox_virtual_environment_vm" "cloud1" {
 }
 locals {
   vm_ips = {
-    for name, vm in proxmox_virtual_environment_vm.cloud1 :
-    name => [for ip in flatten(vm.ipv4_addresses) : ip if ip != "127.0.0.1"][0]
+    for name, cfg in var.instances : name => split("/", cfg.ip)[0]
   }
 }
