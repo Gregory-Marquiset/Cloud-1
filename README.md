@@ -8,6 +8,9 @@ Le projet couvre deux etages :
 - **Terraform** cree les serveurs et genere l'inventaire Ansible (extra, hors sujet)
 - **Ansible** provisionne les serveurs et deploie la stack Docker (partie obligatoire)
 
+A la fin du deploiement le site est **directement utilisable** : WordPress est
+installe par le playbook, il n'y a aucun assistant d'installation a remplir.
+
 ---
 
 ## Architecture
@@ -80,9 +83,21 @@ trouvent reellement. Un chemin FastCGI doit exister dans le conteneur qui execut
 le PHP, pas dans celui qui sert la requete.
 
 **Roles Ansible separes.** `common` (paquets de base, pare-feu), `docker` (moteur
-et plugin compose depuis le depot officiel), `app` (stack applicative). Un role =
-une responsabilite : on peut rejouer `docker` sans toucher a l'application, et
-`common` est reutilisable ailleurs.
+et plugin compose depuis le depot officiel), `dns` (enregistrement DuckDNS), `app`
+(stack applicative). Un role = une responsabilite : on peut rejouer `docker` sans
+toucher a l'application, et `common` est reutilisable ailleurs.
+
+**Installation de WordPress par WP-CLI.** Le service `wpcli` porte
+`profiles: ["cli"]`, donc `docker compose up` l'ignore : ce n'est pas un cinquieme
+conteneur qui tourne, mais un outil invoque a la demande. Le playbook interroge
+d'abord `wp core is-installed` et n'installe que si necessaire -- c'est ce qui
+garde l'operation idempotente. Le mot de passe administrateur vient du vault, et
+la tache porte `no_log: true` pour qu'il n'apparaisse pas dans la sortie Ansible.
+
+**Mise a jour DuckDNS avec `ip=` vide.** Le script appelle l'API sans preciser
+d'adresse : DuckDNS utilise alors l'IP source de la requete. Derriere un NAT c'est
+l'adresse publique de la passerelle, sur une instance cloud c'est celle de
+l'instance. Le meme code convient aux deux situations, sans condition.
 
 **Extra Terraform.** Le sujet ne demande qu'Ansible. Terraform apporte ici deux
 choses : les serveurs eux-memes sont decrits en code (une instance fraiche part
@@ -134,7 +149,8 @@ cloud-1/
 │   └── roles/
 │       ├── common/     paquets de base, UFW
 │       ├── docker/     moteur Docker et plugin compose
-│       └── app/        stack applicative, TLS, .env
+│       ├── dns/        mise a jour DuckDNS (timer systemd)
+│       └── app/        stack applicative, TLS, .env, installation WordPress
 └── docker/
     ├── docker-compose.yml
     └── nginx.conf
@@ -186,7 +202,32 @@ cd ../ansible
 ansible-playbook site.yml
 ```
 
-Le site est ensuite accessible en HTTPS sur chacune des adresses declarees.
+Le site est ensuite accessible en HTTPS sur chacune des adresses declarees, et sur
+le nom de domaine configure. WordPress est deja installe : aucun assistant a
+remplir, aucun compte a creer a la main.
+
+---
+
+## Nom de domaine
+
+Le site de cette installation est publie sur **https://gh-cloud-1.duckdns.org**.
+
+Le domaine se declare dans `group_vars/cloud1/vars.yml` :
+
+```yaml
+domain: gh-cloud-1.duckdns.org
+duckdns_subdomain: gh-cloud-1
+```
+
+Il sert a trois choses :
+
+1. le role `dns` maintient l'enregistrement DuckDNS a jour toutes les cinq minutes
+2. WordPress recoit `WP_HOME` et `WP_SITEURL` par `WORDPRESS_CONFIG_EXTRA`, donc le
+   domaine vit dans le code et non en base -- un redeploiement sur une instance
+   neuve repart avec la bonne adresse
+3. le certificat auto-signe porte ce nom
+
+Le token DuckDNS est un secret : il va dans le vault, jamais dans `vars.yml`.
 
 ---
 
@@ -215,7 +256,14 @@ ansible-vault create group_vars/cloud1/vault.yml
 ```yaml
 vault_db_root_password: "..."
 vault_db_password: "..."
+vault_wp_admin_password: "..."
+vault_duckdns_token: "..."
 ```
+
+Le fichier `.vault-pass` n'etant pas versionne, un clone frais du depot ne peut pas
+dechiffrer le vault : il faut le recreer avec le mot de passe choisi a l'origine.
+C'est voulu -- c'est exactement ce qui empeche quelqu'un qui obtient le depot
+d'obtenir aussi les mots de passe.
 
 ---
 
@@ -225,9 +273,14 @@ Le role `app` genere un certificat auto-signe au premier deploiement, valable un
 an. La tache utilise `creates:` : le certificat n'est pas regenere aux executions
 suivantes, ce qui preserve l'idempotence.
 
-Le navigateur avertira que le certificat n'est pas reconnu -- c'est attendu,
-aucune autorite ne le signe. Avec un nom de domaine, remplacer le certificat par
-un certificat Let's Encrypt et renseigner `server_name`.
+En acces direct par l'adresse IP, le navigateur avertira que le certificat n'est
+pas reconnu -- c'est attendu, aucune autorite ne le signe.
+
+Sur l'installation de developpement, le domaine est servi par un reverse proxy
+(Caddy) place devant les instances : il presente un certificat Let's Encrypt au
+visiteur et relaie vers le serveur **en HTTPS**, sur le certificat auto-signe. Le
+trafic est donc chiffre de bout en bout, et le projet reste autonome -- il fait son
+propre TLS, sans dependre du proxy.
 
 ---
 
@@ -247,6 +300,8 @@ un certificat Let's Encrypt et renseigner `server_name`.
 | Instance fraiche | `terraform destroy` puis redeploiement complet |
 | Idempotence | second passage : `changed=0` sur Ansible et Terraform |
 | Aucun secret en dur | Ansible Vault |
+| Site accessible par un nom de domaine | DuckDNS, tenu a jour par le role `dns` |
+| Site utilisable sans intervention | WordPress installe par WP-CLI depuis le playbook |
 
 ---
 
@@ -261,9 +316,10 @@ a relire le code et a aider au diagnostic des pannes a partir des logs.
 
 Les fichiers de configuration ont ete ecrits a la main. Les pannes rencontrees --
 healthcheck MariaDB obsolete depuis la version 11.4, boucle de crash de nginx au
-demarrage, derive des adresses en DHCP -- ont ete diagnostiquees en lisant les
-logs, puis corrigees en comprenant la cause plutot qu'en appliquant une solution
-toute faite.
+demarrage, derive des adresses en DHCP, reverse proxy repartant en clair parce
+qu'un bloc `transport http` annule le scheme `https://` -- ont ete diagnostiquees
+en lisant les logs, puis corrigees en comprenant la cause plutot qu'en appliquant
+une solution toute faite.
 
 Les decisions d'architecture listees plus haut sont assumees et defendables :
 chacune repond a une contrainte du sujet ou a un probleme rencontre pendant le
