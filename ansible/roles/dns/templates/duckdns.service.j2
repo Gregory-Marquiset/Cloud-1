@@ -1,0 +1,7 @@
+[Unit]
+Description=Mise a jour de l enregistrement DuckDNS
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/duckdns-update.sh

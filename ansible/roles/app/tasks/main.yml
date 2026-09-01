@@ -3,11 +3,13 @@
     path: "{{ app_dir }}/certs"
     state: directory
     mode: "0755"
+
 - name: Copier le fichier de certificat dans le répertoire de l'application
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../docker/docker-compose.yml"
     dest: "{{ app_dir }}"
     mode: "0644"
+
 - name: Copier le fichier de configuration Nginx dans le répertoire de l'application
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../docker/nginx.conf"
@@ -15,11 +17,13 @@
     mode: "0644"
   notify:
     - Redemarrer nginx
+
 - name: Créer le fichier .env pour l'application
   ansible.builtin.template:
     src: env.j2
     dest: "{{ app_dir }}/.env"
     mode: "0600"
+
 - name: Generer le certificat TLS auto-signe
   ansible.builtin.command:
     cmd: >
@@ -28,7 +32,38 @@
       -out {{ app_dir }}/certs/cloud1.crt
       -subj "/CN={{ server_name }}"
     creates: "{{ app_dir }}/certs/cloud1.crt"
+
 - name: Démarrer les conteneurs Docker avec Docker Compose
   community.docker.docker_compose_v2:
     project_src: "{{ app_dir }}"
     state: present
+
+- name: Attendre que WordPress soit deploye dans le volume
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ app_dir }} run --rm wpcli wp core version
+  register: wp_ready
+  until: wp_ready.rc == 0
+  retries: 10
+  delay: 5
+  changed_when: false
+
+- name: Verifier si WordPress est deja installe
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ app_dir }} run --rm wpcli wp core is-installed
+  register: wp_installed
+  failed_when: false
+  changed_when: false
+
+- name: Installer WordPress
+  ansible.builtin.command:
+    cmd: >
+      docker compose --project-directory {{ app_dir }} run --rm wpcli wp
+      core install
+      --url=https://{{ domain }}
+      --title={{ wp_title | quote }}
+      --admin_user={{ wp_admin_user }}
+      --admin_password={{ wp_admin_password | quote }}
+      --admin_email={{ wp_admin_email }}
+      --skip-email
+  when: wp_installed.rc != 0
+  no_log: true

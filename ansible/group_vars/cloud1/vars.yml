@@ -1,4 +1,11 @@
+domain: gh-cloud-1.duckdns.org
+duckdns_subdomain: gh-cloud-1
+duckdns_token: "{{ vault_duckdns_token }}"
 db_name: wordpress
 db_user: wpuser
 db_root_password: "{{ vault_db_root_password }}"
 db_password: "{{ vault_db_password }}"
+wp_title: "Cloud-1"
+wp_admin_user: gregadmin
+wp_admin_email: "{{ ansible_user }}@{{ domain }}"
+wp_admin_password: "{{ vault_wp_admin_password }}"

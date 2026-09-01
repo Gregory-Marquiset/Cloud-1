@@ -19,6 +19,9 @@ services:
   wordpress:
     image: wordpress:6.8-fpm
     environment:
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', 'https://${DOMAIN}');
+        define('WP_SITEURL', 'https://${DOMAIN}');
       WORDPRESS_DB_HOST: mariadb
       WORDPRESS_DB_NAME: ${DB_NAME}
       WORDPRESS_DB_USER: ${DB_USER}
@@ -44,6 +47,18 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+  wpcli:
+    image: wordpress:cli
+    profiles: ["cli"]
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - wp_data:/var/www/html
+    networks:
+      - backend
   nginx:
     image: nginx:1.27-alpine
     ports:
