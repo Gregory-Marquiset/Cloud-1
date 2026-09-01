@@ -91,7 +91,8 @@ toucher a l'application, et `common` est reutilisable ailleurs.
 `profiles: ["cli"]`, donc `docker compose up` l'ignore : ce n'est pas un cinquieme
 conteneur qui tourne, mais un outil invoque a la demande. Le playbook interroge
 d'abord `wp core is-installed` et n'installe que si necessaire -- c'est ce qui
-garde l'operation idempotente. Le mot de passe administrateur vient du vault, et
+garde l'operation idempotente. Le mot de passe administrateur vient de
+`secrets.yml`, et
 la tache porte `no_log: true` pour qu'il n'apparaisse pas dans la sortie Ansible.
 
 **Mise a jour DuckDNS avec `ip=` vide.** Le script appelle l'API sans preciser
@@ -143,8 +144,9 @@ cloud-1/
 │   ├── ansible.cfg
 │   ├── site.yml        playbook principal
 │   ├── group_vars/cloud1/
-│   │   ├── vars.yml    variables en clair
-│   │   └── vault.yml   mots de passe, chiffres (AES256)
+│   │   ├── vars.yml            variables non sensibles
+│   │   ├── secrets.yml         mots de passe, NON versionne
+│   │   └── secrets.yml.example modele a copier apres un clone
 │   ├── inventory/      genere par Terraform, ne pas editer
 │   └── roles/
 │       ├── common/     paquets de base, UFW
@@ -162,12 +164,17 @@ cloud-1/
 
 ### 1. Configuration
 
+Deux fichiers ne sont pas versionnes et doivent etre crees apres un clone :
+
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+cp ansible/group_vars/cloud1/secrets.yml.example ansible/group_vars/cloud1/secrets.yml
+chmod 600 ansible/group_vars/cloud1/secrets.yml
 ```
 
-Y renseigner sa cle publique SSH. Les identifiants Proxmox passent par
-l'environnement, jamais par le depot :
+Renseigner sa cle publique SSH dans le premier, les mots de passe dans le second
+(voir la section Secrets). Les identifiants Proxmox passent par l'environnement,
+jamais par le depot :
 
 ```bash
 export PROXMOX_VE_ENDPOINT="https://<hyperviseur>:8006/"
@@ -227,7 +234,7 @@ Il sert a trois choses :
    neuve repart avec la bonne adresse
 3. le certificat auto-signe porte ce nom
 
-Le token DuckDNS est un secret : il va dans le vault, jamais dans `vars.yml`.
+Le token DuckDNS est un secret : il va dans `secrets.yml`, jamais dans `vars.yml`.
 
 ---
 
@@ -235,35 +242,40 @@ Le token DuckDNS est un secret : il va dans le vault, jamais dans `vars.yml`.
 
 Aucun mot de passe n'apparait dans le depot.
 
-- Les mots de passe de la base vivent dans `group_vars/cloud1/vault.yml`, chiffre
-  par Ansible Vault. Ce fichier est versionne ; sa cle ne l'est pas.
-- `group_vars/cloud1/vars.yml` ne contient que des references
-  (`db_password: "{{ vault_db_password }}"`). Cette indirection garde les
-  variables greppables : un fichier chiffre ne l'est pas.
-- Le role `app` genere `/opt/cloud-1/.env` sur le serveur cible, en 0600. C'est le
-  seul endroit ou les mots de passe existent en clair.
-- `.vault-pass`, `terraform.tfvars`, l'etat Terraform, le `.env` et les
-  certificats sont exclus par `.gitignore`.
+Les variables sont separees en deux fichiers, tous deux charges automatiquement
+par Ansible depuis `group_vars/cloud1/` :
 
-Recreer le vault sur une nouvelle machine de controle :
+| fichier | versionne | contenu |
+|---|---|---|
+| `vars.yml` | oui | domaine, nom de la base, identifiants non sensibles |
+| `secrets.yml` | **non** | les quatre mots de passe |
+| `secrets.yml.example` | oui | les memes cles, vides : le mode d'emploi |
+
+La separation est volontaire : `vars.yml` reste lisible et modifiable par
+n'importe qui, `secrets.yml` ne quitte jamais la machine de controle. C'est le
+meme principe qu'un `.env` applicatif.
+
+Le role `app` genere ensuite `/opt/cloud-1/.env` sur le serveur cible, en 0600 --
+seul endroit ou les mots de passe existent en clair sur la machine deployee.
+
+`secrets.yml`, `terraform.tfvars`, l'etat Terraform, le `.env` et les certificats
+sont exclus par `.gitignore`.
+
+Apres un clone, creer le fichier de secrets :
 
 ```bash
-cd ansible
-openssl rand -base64 32 > .vault-pass && chmod 600 .vault-pass
-ansible-vault create group_vars/cloud1/vault.yml
+cd ansible/group_vars/cloud1
+cp secrets.yml.example secrets.yml && chmod 600 secrets.yml
 ```
+
+Puis le renseigner (mots de passe generes avec `openssl rand -base64 24`) :
 
 ```yaml
-vault_db_root_password: "..."
-vault_db_password: "..."
-vault_wp_admin_password: "..."
-vault_duckdns_token: "..."
+db_root_password: "..."
+db_password: "..."
+wp_admin_password: "..."
+duckdns_token: "..."
 ```
-
-Le fichier `.vault-pass` n'etant pas versionne, un clone frais du depot ne peut pas
-dechiffrer le vault : il faut le recreer avec le mot de passe choisi a l'origine.
-C'est voulu -- c'est exactement ce qui empeche quelqu'un qui obtient le depot
-d'obtenir aussi les mots de passe.
 
 ---
 
@@ -299,7 +311,7 @@ propre TLS, sans dependre du proxy.
 | Routage par URL | `/` et `/phpmyadmin/` |
 | Instance fraiche | `terraform destroy` puis redeploiement complet |
 | Idempotence | second passage : `changed=0` sur Ansible et Terraform |
-| Aucun secret en dur | Ansible Vault |
+| Aucun secret en dur | `secrets.yml` gitignore, `git grep` sans resultat |
 | Site accessible par un nom de domaine | DuckDNS, tenu a jour par le role `dns` |
 | Site utilisable sans intervention | WordPress installe par WP-CLI depuis le playbook |
 

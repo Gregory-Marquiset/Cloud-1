@@ -14,3 +14,6 @@ terraform.tfvars
 # nginx
 docker/.env
 docker/certs/
+
+# Secrets Ansible
+ansible/group_vars/*/secrets.yml
